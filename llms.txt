@@ -1,0 +1,154 @@
+# randoma11y — LLM / agent context
+
+This file documents the npm package in this directory (`randoma11y`). Read it before modifying code, answering integration questions, or refactoring.
+
+## Purpose
+
+`randoma11y` generates **accessible two-color pairs** (background + foreground) that satisfy a **contrast threshold** for a chosen **contrast algorithm**. It is **dependency-free**: contrast math is vendored to match **colorjs.io** (same numeric results as `Color.contrast()` for supported inputs), without importing `colorjs.io`.
+
+## Module entry
+
+- **Package name:** `randoma11y`
+- **Entry:** `./src/index.js` (ESM only, `"type": "module"`)
+- **Types:** `./src/index.d.ts`
+- **Import:** `import { randoma11y, randomAccessiblePair, contrast, meetsThreshold, applyCssVariables, resolveCssVariablesOption } from 'randoma11y'`
+- **`engines.node`:** `>=14` (ESM, `Number.isSafeInteger`, `node:assert` in tests).
+
+## Development & testing
+
+- **Runtime:** zero npm dependencies for consumers (`dependencies` is empty).
+- **Dev:** `colorjs.io` is a **devDependency** only. Tests compare vendored `contrast()` to `Color.contrast()` so numeric drift is caught.
+- **Tests:** `npm test` runs `node ./test/package.test.js` (plain runner + `node:assert/strict`, no `node:test` harness).
+- From this directory: `npm install && npm test` must pass before publish.
+
+## Primary API: `randoma11y(options?)`
+
+### Argument shapes
+
+1. **No argument / `{}`** — Generate a full random pair (random base color, then search for a partner).
+2. **`string`** — Shorthand for `{ color: string }` (lock one color and generate the other).
+3. **`options` object** — See parameters below.
+
+### Parameters (options object)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `algorithm` | `'APCA'` | One of: `'APCA'`, `'WCAG21'`, `'Michelson'`, `'Weber'`, `'Lstar'`, `'deltaPhi'`. |
+| `threshold` | `75` | Minimum contrast. **Meaning depends on algorithm** (see “Threshold semantics”). |
+| `color` | `null` | If set, one color is fixed; the other is generated. Use with `role`. |
+| `role` | `'background'` | With `color`: `'background'` means `color` is **background** (slot 0), generate **foreground** (slot 1). `'foreground'` means `color` is **foreground**, generate **background**. |
+| `maxIterations` | `20000` | Positive safe integer total search budget (random tries + shuffled HSL grid + black/white fallback share this cap). |
+| `cssVariables` | omitted | If truthy, after generation, writes hex values to CSS custom properties on a DOM element (see “CSS variables”). |
+
+### Return value: `Randoma11yResult`
+
+Always includes:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `colors` | `[string, string]` | **`[background, foreground]`** as **hex** strings. Order matters for **APCA** (first = background, second = foreground). |
+| `contrast` | `number` | Raw contrast for the chosen `algorithm` between `colors[0]` and `colors[1]`. |
+| `algorithm` | `ContrastAlgorithm` | Echo of the algorithm used (useful when relying on the default). |
+| `threshold` | `number` | Echo of the threshold requested. |
+| `meetsThreshold` | `boolean` | Whether `contrast` satisfies `threshold` for `algorithm`. Avoids needing to import `meetsThreshold` separately. |
+| `iterations` | `number` | How many inner comparison steps ran during search. |
+
+If `cssVariables` was requested (truthy), also includes:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `cssVariables.applied` | `boolean` | `true` if `setProperty` ran. `false` in Node/SSR when `document` is missing or `target` is null. |
+| `cssVariables.names` | `[string, string]` | The two custom property names used (e.g. `['--randoma11y-color-1', '--randoma11y-color-2']`). |
+| `cssVariables.target` | `Element \| null` | Element that received the properties, if any. |
+
+### Alias
+
+- **`randomAccessiblePair`** — Same function as `randoma11y`.
+
+## Threshold semantics (`meetsThreshold`)
+
+Implemented in `src/contrast.js`:
+
+- **`WCAG21`:** Pass when `contrast >= threshold` (ratio-style; typical thresholds 3, 4.5, 7).
+- **All others (`APCA`, `Michelson`, `Weber`, `Lstar`, `deltaPhi`):** Pass when `Math.abs(contrast) >= threshold`.
+
+Default **`threshold: 75`** is intended for **APCA** (absolute Lc-style scale; app often uses 45–90).
+
+When changing `algorithm`, **change `threshold` to something appropriate** for that algorithm (do not assume 75 is valid for WCAG ratios).
+
+Validation now rejects:
+
+- Non-finite or negative `threshold`
+- Non-integer / non-positive `maxIterations`
+- Unsupported `algorithm`
+- Invalid `cssVariables` option shapes
+
+## Contrast helpers (exported)
+
+- **`contrast(background, foreground, algorithm)`** — Same ordering as colorjs: **background first, foreground second** (critical for APCA).
+- **`meetsThreshold(value, algorithm, threshold)`** — Boolean check using the rules above.
+
+## CSS variables
+
+When `cssVariables` is set:
+
+- **`cssVariables: true`** — Sets on **`document.documentElement`** (when `document` exists):
+  - `--randoma11y-color-1` ← `colors[0]` (background)
+  - `--randoma11y-color-2` ← `colors[1]` (foreground)
+
+- **`cssVariables: { ... }`** — Optional:
+  - `target` — Element for `style.setProperty` (default `document.documentElement`). Use `null` to skip applying.
+  - `color1`, `color2` — Custom property names. If a name does **not** start with `--`, **`--` is prepended**.
+  - `names` — Shorthand `[color1, color2]`.
+
+Low-level exports: **`resolveCssVariablesOption`**, **`applyCssVariables`** (`src/cssVariables.js`).
+
+## Supported color syntax (input `color` option)
+
+Parsed in `src/color.js`. **Supported:** hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()` / `rgba()`, `hsl()` / `hsla()`, named `black`, `white`, `transparent`.
+
+**Not supported:** `color(display-p3 ...)`, `oklch()`, `lab()`, etc. For those, convert to hex/rgb in the host app before passing to `randoma11y`.
+
+Generated output is always **hex** strings.
+
+## Search strategy (internal)
+
+Implemented in `src/combo.js`:
+
+1. **Random sRGB** attempts (up to 2000 per inner search, bounded by `maxIterations` minus reserved fallback checks).
+2. If needed, **shuffled HSL grid** (12×10×10).
+3. **Fallback:** try **black** and **white** as candidates, preferring the more likely high-contrast extreme first.
+
+Full random pair mode: up to **5** outer attempts to pick a base + find a partner; then a final fallback pass (mirrors `colorGenerator.js` in the parent app).
+
+If the threshold is very strict or `maxIterations` is low, the pair may **not** meet the threshold; the function still returns the **best effort** (same spirit as the app).
+
+## File layout
+
+```
+package/
+  package.json
+  README.md
+  llms.txt          ← this file
+  src/
+    index.d.ts      ← bundled TypeScript declarations
+    index.js        ← public API, wires cssVariables
+    combo.js        ← pair generation + search
+    contrast.js     ← algorithms + contrast() + meetsThreshold
+    color.js        ← parse, sRGB/XYZ/Lab, hex conversion
+    cssVariables.js ← DOM custom property helpers
+    options.js      ← public option validation helpers
+  test/
+    package.test.js ← package-focused runtime verification
+```
+
+## Design constraints for agents
+
+- **Do not add `colorjs.io` as a runtime dependency** (`dependencies`). It may remain a **devDependency** for regression tests against `Color.contrast()`.
+- **Keep APCA argument order** as background then foreground everywhere.
+- **Preserve `sideEffects: false`** in `package.json` unless adding real side effects at import time (avoid: `cssVariables` only runs when `randoma11y()` is called with that option).
+- When publishing, ensure **`files`** in `package.json` includes `src` and **`llms.txt`** if consumers should receive this file.
+
+## Version
+
+See `package.json` `"version"` (this document does not duplicate it; avoid drift).

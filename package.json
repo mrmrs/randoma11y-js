@@ -1,0 +1,47 @@
+{
+  "name": "randoma11y-js",
+  "author": "mrmrs",
+  "version": "1.0.0",
+  "description": "Generate accessible color combinations",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": ["src", "README.md", "llms.txt"],
+  "scripts": {
+    "test": "node ./test/package.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "devDependencies": {
+    "colorjs.io": "^0.6.1"
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrmrs/randoma11y-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrmrs/randoma11y-js/issues"
+  },
+  "homepage": "https://github.com/mrmrs/randoma11y-js#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "accessibility",
+    "color",
+    "contrast",
+    "APCA",
+    "WCAG",
+    "a11y"
+  ]
+}
